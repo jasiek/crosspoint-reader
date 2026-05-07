@@ -1,0 +1,16 @@
+auto_sync    = false
+update_check = false
+search_mode  = "fuzzy"
+filter_mode  = "global"
+style        = "compact"
+
+# Commands matching these patterns are NOT recorded.
+# Use ATUIN_NOLOG=1 as a per-command escape hatch: ATUIN_NOLOG=1 <cmd>
+history_filter = [
+    "^export .*TOKEN",
+    "^export .*SECRET",
+    "^export .*KEY",
+    "^export .*PASSWORD",
+    "^.*--token[= ]",
+    "^.*--password[= ]",
+]

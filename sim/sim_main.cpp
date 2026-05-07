@@ -22,6 +22,7 @@
 #include "GfxRenderer.h"
 #include "HalDisplay.h"
 #include "HalGPIO.h"
+#include "diag/DiagFont.h"
 #include "input/SimInput.h"
 #include "builtinFonts/notoserif_18_regular.h"
 #include "builtinFonts/notoserif_18_bold.h"
@@ -150,12 +151,8 @@ void renderMenu(GfxRenderer& renderer, const Menu& menu,
     y += 44;
   }
 
-  // Status footer: orientation + frame counter (kept short to fit portrait).
-  char status[80];
-  std::snprintf(status, sizeof(status), "%s   frame %d",
-                orientationName(orientation), frame);
-  renderer.drawLine(30, h - 80, w - 30, h - 80, true);
-  renderer.drawText(FONT_SMALL, 30, h - 50, status, true);
+  (void)orientation;
+  (void)frame;
 }
 
 }  // namespace
@@ -212,9 +209,13 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  SDL_Window* win = SDL_CreateWindow(
-      "CrossPoint Sim", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-      HalDisplay::DISPLAY_WIDTH, HalDisplay::DISPLAY_HEIGHT, SDL_WINDOW_SHOWN);
+  constexpr int kDiagH = 12;  // Black diagnostic strip at bottom.
+  const int winW = HalDisplay::DISPLAY_WIDTH;
+  const int winH = HalDisplay::DISPLAY_HEIGHT + kDiagH;
+
+  SDL_Window* win = SDL_CreateWindow("CrossPoint Sim", SDL_WINDOWPOS_CENTERED,
+                                     SDL_WINDOWPOS_CENTERED, winW, winH,
+                                     SDL_WINDOW_SHOWN);
   SDL_Renderer* sdl = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
   SDL_Texture* tex = SDL_CreateTexture(
       sdl, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
@@ -270,8 +271,26 @@ int main(int argc, char** argv) {
                       HalDisplay::DISPLAY_WIDTH, HalDisplay::DISPLAY_HEIGHT);
       dirty = false;
     }
+
+    // Panel: top region 800×480.
+    SDL_Rect panelDst{0, 0, HalDisplay::DISPLAY_WIDTH,
+                      HalDisplay::DISPLAY_HEIGHT};
     SDL_RenderClear(sdl);
-    SDL_RenderCopy(sdl, tex, nullptr, nullptr);
+    SDL_RenderCopy(sdl, tex, nullptr, &panelDst);
+
+    // Diag strip: 12px black bar at the bottom, white 5x7 ASCII.
+    SDL_Rect diagBar{0, HalDisplay::DISPLAY_HEIGHT, winW, kDiagH};
+    SDL_SetRenderDrawColor(sdl, 0, 0, 0, 255);
+    SDL_RenderFillRect(sdl, &diagBar);
+    char diag[96];
+    std::snprintf(diag, sizeof(diag), "%s  FRAME %d  HEAP %uK",
+                  orientationName(kOrientations[orientationIdx]),
+                  frame,
+                  static_cast<unsigned>(ESP.getFreeHeap() / 1024));
+    // Center the 7px-tall glyphs vertically in the 12px strip.
+    sim::diag::drawText(sdl, 4, HalDisplay::DISPLAY_HEIGHT + 2, diag, 255, 255,
+                        255);
+
     SDL_RenderPresent(sdl);
     SDL_Delay(16);
   }

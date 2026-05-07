@@ -1,0 +1,55 @@
+# Coder template variables — per-deployment.
+#
+# Copy to ~/.config/holicode/sites/<site>.tfvars and fill in.
+# Never commit this file — it contains GitHub App credentials.
+
+# --- Workspace image ---------------------------------------------------------
+# Pull from GHCR (auto-built by .github/workflows/build-coder-image.yml).
+image_name = "ghcr.io/holagence/holicode-cde"
+image_tag  = "2.2.0"
+
+# --- Architecture (x86 deployments) -----------------------------------------
+agent_arch = "amd64"
+
+# --- Resource defaults / limits (UI sliders) --------------------------------
+cpu_default    = 4
+cpu_max        = 8
+memory_default = 8
+memory_min     = 4
+memory_max     = 16
+
+# --- Networking --------------------------------------------------------------
+# Set "true" if running inside a Dokploy stack with Traefik routing.
+use_dokploy_network = "false"
+
+# Set "true" only if the Docker daemon has IPv6 enabled globally.
+use_ipv6_network    = "false"
+
+# GID of the docker group on the host. Find with:
+#   getent group docker | cut -d: -f3
+docker_gid = "988"
+
+# --- Domain config -----------------------------------------------------------
+# Produces https://vk-remote.<domain> + https://vk-relay.<domain>.
+vk_base_domain = "example.com"
+
+# Coder access URL as users see it (external).
+coder_access_url = "https://coder.example.com"
+
+# Internal URL the workspace container uses to reach Coder, bypassing
+# external routing (Cloudflare etc.). Leave empty if external is reachable.
+coder_internal_url = ""
+
+# --- Project repos -----------------------------------------------------------
+# Comma-separated default project repos suggested at workspace creation.
+default_project_repos = "https://github.com/<your-org>/<your-repo>.git"
+
+# --- GitHub App auth (HOL-550) ----------------------------------------------
+# Source these from your vault — never commit real values.
+# 1Password example:
+#   op read "op://Automation/GitHub App: HoliCode Agent/app_id"
+#   op read "op://Automation/GitHub App: HoliCode Agent/installation_id"
+#   op read "op://Automation/GitHub App: HoliCode Agent/private_key_b64"
+github_app_id              = ""
+github_app_installation_id = ""
+github_app_private_key_b64 = ""
