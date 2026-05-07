@@ -1,0 +1,75 @@
+cmake_minimum_required(VERSION 3.20)
+project(crosspoint_sim CXX C)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS ON)  # device build uses gnu++2a
+
+# Sanitizers help catch the kinds of UB that on-device builds silently mask.
+if(NOT DEFINED SIM_SANITIZE)
+  set(SIM_SANITIZE ON)
+endif()
+if(SIM_SANITIZE)
+  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=address,undefined)
+endif()
+
+add_compile_options(
+  -Wall -Wno-unused-parameter -Wno-sign-compare -Wno-unused-variable
+  -Wno-unused-but-set-variable
+)
+
+add_compile_definitions(
+  CROSSPOINT_EMULATED=1
+  ENABLE_SERIAL_LOG
+  LOG_LEVEL=2
+  XML_GE=0
+)
+
+set(REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
+
+# Compat shims (Arduino.h, HardwareSerial.h) and stubs (HalDisplay.h) MUST come
+# first on the include path so they shadow the device headers.
+include_directories(BEFORE
+  ${CMAKE_CURRENT_SOURCE_DIR}/compat
+  ${CMAKE_CURRENT_SOURCE_DIR}/stub
+)
+
+include_directories(
+  ${REPO_ROOT}/lib/Logging
+  ${REPO_ROOT}/lib/Utf8
+  ${REPO_ROOT}/lib/InflateReader
+  ${REPO_ROOT}/lib/uzlib/src
+  ${REPO_ROOT}/lib/EpdFont
+  ${REPO_ROOT}/lib/EpdFont/builtinFonts
+  ${REPO_ROOT}/lib/GfxRenderer
+)
+
+# uzlib (C)
+add_library(uzlib_sim STATIC
+  ${REPO_ROOT}/lib/uzlib/src/tinflate.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/stub/uzlib_chksum_stubs.c
+)
+target_include_directories(uzlib_sim PUBLIC ${REPO_ROOT}/lib/uzlib/src)
+
+add_library(crosspoint_core STATIC
+  ${REPO_ROOT}/lib/Logging/Logging.cpp
+  ${REPO_ROOT}/lib/Utf8/Utf8.cpp
+  ${REPO_ROOT}/lib/InflateReader/InflateReader.cpp
+  ${REPO_ROOT}/lib/EpdFont/EpdFont.cpp
+  ${REPO_ROOT}/lib/EpdFont/EpdFontFamily.cpp
+  ${REPO_ROOT}/lib/EpdFont/FontDecompressor.cpp
+  ${REPO_ROOT}/lib/GfxRenderer/GfxRenderer.cpp
+  ${REPO_ROOT}/lib/GfxRenderer/Bitmap.cpp
+  ${REPO_ROOT}/lib/GfxRenderer/BitmapHelpers.cpp
+  ${REPO_ROOT}/lib/GfxRenderer/FontCacheManager.cpp
+)
+target_link_libraries(crosspoint_core PUBLIC uzlib_sim)
+
+find_package(SDL2 REQUIRED)
+
+add_executable(crosspoint_sim
+  sim_main.cpp
+)
+target_link_libraries(crosspoint_sim PRIVATE crosspoint_core ${SDL2_LIBRARIES})
+target_include_directories(crosspoint_sim PRIVATE ${SDL2_INCLUDE_DIRS})
