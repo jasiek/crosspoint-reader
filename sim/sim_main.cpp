@@ -29,24 +29,24 @@
 #include "HalDisplay.h"
 #include "HalGPIO.h"
 #include "HalStorage.h"
+#include "components/themes/lyra/LyraTheme.h"
 #include "diag/DiagFont.h"
+#include "fontIds.h"
 #include "input/SimInput.h"
-#include "builtinFonts/notoserif_18_regular.h"
-#include "builtinFonts/notoserif_18_bold.h"
-#include "builtinFonts/notoserif_18_italic.h"
-#include "builtinFonts/notoserif_18_bolditalic.h"
 #include "builtinFonts/notoserif_14_regular.h"
 #include "builtinFonts/notoserif_14_bold.h"
 #include "builtinFonts/notoserif_14_italic.h"
 #include "builtinFonts/notoserif_14_bolditalic.h"
+#include "builtinFonts/notosans_8_regular.h"
+#include "builtinFonts/ubuntu_10_regular.h"
+#include "builtinFonts/ubuntu_10_bold.h"
+#include "builtinFonts/ubuntu_12_regular.h"
+#include "builtinFonts/ubuntu_12_bold.h"
 
 HalDisplay display;
 HalGPIO gpio;
 
 namespace {
-
-constexpr int FONT_BODY = 1;
-constexpr int FONT_SMALL = 2;
 
 constexpr GfxRenderer::Orientation kOrientations[] = {
     GfxRenderer::LandscapeCounterClockwise,
@@ -114,33 +114,46 @@ struct Menu {
   int selected = 0;
   bool dirty = true;
 
-  void up() { selected = (selected - 1 + items.size()) % items.size(); dirty = true; }
-  void down() { selected = (selected + 1) % items.size(); dirty = true; }
+  void up() {
+    selected = (selected - 1 + items.size()) % items.size();
+    dirty = true;
+  }
+  void down() {
+    selected = (selected + 1) % items.size();
+    dirty = true;
+  }
   bool selectedIsQuit() const {
     return selected == static_cast<int>(items.size()) - 1;
   }
 };
 
-void renderMenu(GfxRenderer& renderer, const Menu& menu) {
+void renderMenu(GfxRenderer& renderer, const BaseTheme& theme,
+                const Menu& menu) {
   renderer.clearScreen();
   const int w = renderer.getScreenWidth();
+  const int h = renderer.getScreenHeight();
+  const auto& m = LyraMetrics::values;
 
-  renderer.drawText(FONT_BODY, 30, 50, "CrossPoint Reader (sim)", true);
-  renderer.drawLine(30, 78, w - 30, 78, true);
+  // Header rendered through the device theme.
+  Rect headerRect{0, 0, w, m.headerHeight};
+  theme.drawHeader(renderer, headerRect, "CrossPoint Reader (sim)");
 
-  int y = 120;
-  for (size_t i = 0; i < menu.items.size(); ++i) {
-    const bool selected = (static_cast<int>(i) == menu.selected);
-    if (selected) {
-      renderer.drawRect(30, y - 22, w - 60, 36, true);
-      char buf[80];
-      std::snprintf(buf, sizeof(buf), "> %s", menu.items[i]);
-      renderer.drawText(FONT_BODY, 50, y, buf, false);
-    } else {
-      renderer.drawText(FONT_BODY, 50, y, menu.items[i], true);
-    }
-    y += 44;
-  }
+  // Battery indicator on the right of the header.
+  Rect batteryRect{w - m.batteryWidth - 20, m.topPadding,
+                   m.batteryWidth, m.batteryHeight};
+  theme.drawBatteryRight(renderer, batteryRect, /*showPercentage=*/true);
+
+  // List of menu items.
+  Rect listRect{0, m.headerHeight, w, h - m.headerHeight - m.buttonHintsHeight};
+  theme.drawList(
+      renderer, listRect, static_cast<int>(menu.items.size()), menu.selected,
+      [&](int i) { return std::string(menu.items[i]); });
+
+  // Button hints at the bottom — Lyra positions itself based on metrics.
+  // drawButtonHints isn't const on the device API; cast away.
+  const_cast<BaseTheme&>(theme).drawButtonHints(
+      const_cast<GfxRenderer&>(renderer), "Back", "Select", "Up", "Down");
+  (void)h;
 }
 
 }  // namespace
@@ -165,22 +178,32 @@ int main(int argc, char** argv) {
   size_t orientationIdx = 0;
   renderer.setOrientation(kOrientations[orientationIdx]);
 
-  EpdFont r18(&notoserif_18_regular), b18(&notoserif_18_bold),
-      i18(&notoserif_18_italic), bi18(&notoserif_18_bolditalic);
-  EpdFontFamily fam18(&r18, &b18, &i18, &bi18);
-  EpdFont r14(&notoserif_14_regular), b14(&notoserif_14_bold),
-      i14(&notoserif_14_italic), bi14(&notoserif_14_bolditalic);
-  EpdFontFamily fam14(&r14, &b14, &i14, &bi14);
-  renderer.insertFont(FONT_BODY, fam18);
-  renderer.insertFont(FONT_SMALL, fam14);
+  static EpdFont serif14R(&notoserif_14_regular), serif14B(&notoserif_14_bold),
+      serif14I(&notoserif_14_italic), serif14BI(&notoserif_14_bolditalic);
+  static EpdFontFamily serif14Family(&serif14R, &serif14B, &serif14I, &serif14BI);
+  static EpdFont smallFontGlyphs(&notosans_8_regular);
+  static EpdFontFamily smallFamily(&smallFontGlyphs);
+  static EpdFont ui10R(&ubuntu_10_regular), ui10B(&ubuntu_10_bold);
+  static EpdFontFamily ui10Family(&ui10R, &ui10B);
+  static EpdFont ui12R(&ubuntu_12_regular), ui12B(&ubuntu_12_bold);
+  static EpdFontFamily ui12Family(&ui12R, &ui12B);
+
+  renderer.insertFont(NOTOSERIF_14_FONT_ID, serif14Family);
+  renderer.insertFont(SMALL_FONT_ID, smallFamily);
+  renderer.insertFont(UI_10_FONT_ID, ui10Family);
+  renderer.insertFont(UI_12_FONT_ID, ui12Family);
 
   static FontDecompressor fontDecompressor;
   static FontCacheManager fontCache(renderer.getFontMap());
   fontCache.setFontDecompressor(&fontDecompressor);
   renderer.setFontCacheManager(&fontCache);
 
+  // Use the real device's Lyra theme. UITheme isn't ported yet (it pulls in
+  // the full theme registry), but BaseTheme/LyraTheme alone cover home.
+  static LyraTheme theme;
+
   Menu menu;
-  renderMenu(renderer, menu);
+  renderMenu(renderer, theme, menu);
   display.displayBuffer();  // initial publish
 
   if (headless) {
@@ -273,7 +296,7 @@ int main(int argc, char** argv) {
     }
 
     if (menu.dirty) {
-      renderMenu(renderer, menu);
+      renderMenu(renderer, theme, menu);
       display.displayBuffer();  // bumps refreshTick → host loop will blit
       menu.dirty = false;
     }

@@ -51,6 +51,12 @@ include_directories(
   ${REPO_ROOT}/lib/Epub/Epub
   ${REPO_ROOT}/lib/Epub/Epub/css
   ${REPO_ROOT}/lib/Epub/Epub/hyphenation
+  ${REPO_ROOT}/lib/I18n
+  ${REPO_ROOT}/src
+  ${REPO_ROOT}/src/components
+  ${REPO_ROOT}/src/components/themes
+  ${REPO_ROOT}/src/components/themes/lyra
+  ${REPO_ROOT}/src/util
 )
 
 # uzlib (C)
@@ -79,10 +85,23 @@ add_library(crosspoint_core STATIC
   ${REPO_ROOT}/lib/Epub/Epub/hyphenation/LiangHyphenation.cpp
   ${REPO_ROOT}/lib/Epub/Epub/hyphenation/LanguageRegistry.cpp
   ${REPO_ROOT}/lib/Epub/Epub/hyphenation/Hyphenator.cpp
+  ${REPO_ROOT}/lib/I18n/I18n.cpp
+  ${REPO_ROOT}/lib/I18n/I18nStrings.cpp
+  # Real device source brought in (header dependencies satisfied by stubs).
+  ${REPO_ROOT}/src/MappedInputManager.cpp
+  ${REPO_ROOT}/src/util/ButtonNavigator.cpp
+  ${REPO_ROOT}/src/components/themes/BaseTheme.cpp
+  ${REPO_ROOT}/src/components/themes/lyra/LyraTheme.cpp
+  # Sim-side stubs for state classes (in-memory, no JSON persistence).
+  ${CMAKE_CURRENT_SOURCE_DIR}/sim_src/CrossPointSettings.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/sim_src/RecentBooksStore.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/sim_src/OpdsServerStore.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/sim_src/UITheme.cpp
   # Simulator HAL backend (replaces lib/hal/ via include-path priority).
   ${REPO_ROOT}/lib/hal_sim/HalDisplay.cpp
   ${REPO_ROOT}/lib/hal_sim/HalGPIO.cpp
   ${REPO_ROOT}/lib/hal_sim/HalStorage.cpp
+  ${REPO_ROOT}/lib/hal_sim/HalPowerManager.cpp
 )
 target_link_libraries(crosspoint_core PUBLIC uzlib_sim)
 
