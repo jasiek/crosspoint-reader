@@ -59,6 +59,30 @@ if (( ${#missing[@]} )); then
   exit 1
 fi
 
+# --- I18n codegen -----------------------------------------------------------
+# I18nKeys.h / I18nStrings.{h,cpp} are gitignored; generated from yaml.
+# Regenerate when missing or when any yaml is newer than the generated cpp.
+i18n_dir="$REPO_ROOT/lib/I18n"
+i18n_out="$i18n_dir/I18nStrings.cpp"
+need_i18n=0
+if [[ ! -f "$i18n_out" ]]; then
+  need_i18n=1
+else
+  for y in "$i18n_dir/translations"/*.yaml; do
+    [[ "$y" -nt "$i18n_out" ]] && { need_i18n=1; break; }
+  done
+fi
+if (( need_i18n )); then
+  python_bin="$(command -v python3 || command -v python || true)"
+  if [[ -z "$python_bin" ]]; then
+    echo "==> need python for I18n codegen — install python3" >&2
+    exit 1
+  fi
+  echo "==> regenerating I18n bindings"
+  "$python_bin" "$REPO_ROOT/scripts/gen_i18n.py" \
+      "$i18n_dir/translations" "$i18n_dir/"
+fi
+
 # --- Submodule sanity -------------------------------------------------------
 
 if [[ -d "$REPO_ROOT/open-x4-sdk" && -z "$(ls -A "$REPO_ROOT/open-x4-sdk" 2>/dev/null)" ]]; then
