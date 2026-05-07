@@ -1,11 +1,17 @@
 // CrossPoint simulator entry point.
 //
-// Drives GfxRenderer on the host with an SDL window and keyboard input.
-// Presents a small interactive demo (a vertical menu) so the input → render
-// loop can be exercised end-to-end without the full activity stack.
+// Drives the firmware's HAL (lib/hal_sim/) on the host with an SDL window
+// and keyboard input. Demonstrates the canonical device flow:
+//   - SDL key events feed HalGPIO::simSetButton(BTN_*) so wasPressed/
+//     wasReleased fire on edges in HalGPIO::update().
+//   - Application logic queries HalGPIO::wasPressed(BTN_*) like on device.
+//   - Application calls display.displayBuffer() to publish a frame; the host
+//     loop polls display.getRefreshTick() to decide when to re-blit.
 //
-// Keys (default): Up/Down move selection, X/Enter confirm, Z back, [/] page
-// turn, O cycle orientation, F12 screenshot, Esc quit.
+// Sim-only host shortcuts (Esc / O / F12) bypass HalGPIO entirely.
+//
+// Keys: Up/Down move selection, X/Enter confirm, Z back, [/] page-side,
+// P power button, O cycle orientation, F12 screenshot, Esc quit.
 
 #include <SDL2/SDL.h>
 
@@ -22,6 +28,7 @@
 #include "GfxRenderer.h"
 #include "HalDisplay.h"
 #include "HalGPIO.h"
+#include "HalStorage.h"
 #include "diag/DiagFont.h"
 #include "input/SimInput.h"
 #include "builtinFonts/notoserif_18_regular.h"
@@ -50,10 +57,10 @@ constexpr GfxRenderer::Orientation kOrientations[] = {
 
 const char* orientationName(GfxRenderer::Orientation o) {
   switch (o) {
-    case GfxRenderer::Portrait: return "Portrait";
-    case GfxRenderer::PortraitInverted: return "Portrait (inv)";
-    case GfxRenderer::LandscapeClockwise: return "Landscape CW";
-    case GfxRenderer::LandscapeCounterClockwise: return "Landscape CCW";
+    case GfxRenderer::Portrait: return "PORTRAIT";
+    case GfxRenderer::PortraitInverted: return "PORTRAIT INV";
+    case GfxRenderer::LandscapeClockwise: return "LANDSCAPE CW";
+    case GfxRenderer::LandscapeCounterClockwise: return "LANDSCAPE CCW";
   }
   return "?";
 }
@@ -73,7 +80,6 @@ void blitFramebuffer(SDL_Texture* tex, const uint8_t* fb, int wPanel,
     for (int x = 0; x < wPanel; ++x) {
       const uint8_t byte = fb[y * wb + (x >> 3)];
       const bool on = byte & (0x80 >> (x & 7));
-      // E-ink-ish palette: warm off-white background, near-black ink.
       row[x] = on ? 0xFFEEEAE0u : 0xFF1A1A1Au;
     }
   }
@@ -108,35 +114,20 @@ struct Menu {
   int selected = 0;
   bool dirty = true;
 
-  void onButton(sim::Button b) {
-    switch (b) {
-      case sim::Button::Up:
-      case sim::Button::PageBack:
-        selected = (selected - 1 + items.size()) % items.size();
-        dirty = true;
-        break;
-      case sim::Button::Down:
-      case sim::Button::PageForward:
-        selected = (selected + 1) % items.size();
-        dirty = true;
-        break;
-      default:
-        break;
-    }
+  void up() { selected = (selected - 1 + items.size()) % items.size(); dirty = true; }
+  void down() { selected = (selected + 1) % items.size(); dirty = true; }
+  bool selectedIsQuit() const {
+    return selected == static_cast<int>(items.size()) - 1;
   }
 };
 
-void renderMenu(GfxRenderer& renderer, const Menu& menu,
-                GfxRenderer::Orientation orientation, int frame) {
+void renderMenu(GfxRenderer& renderer, const Menu& menu) {
   renderer.clearScreen();
   const int w = renderer.getScreenWidth();
-  const int h = renderer.getScreenHeight();
 
-  // Title bar.
   renderer.drawText(FONT_BODY, 30, 50, "CrossPoint Reader (sim)", true);
   renderer.drawLine(30, 78, w - 30, 78, true);
 
-  // Menu items.
   int y = 120;
   for (size_t i = 0; i < menu.items.size(); ++i) {
     const bool selected = (static_cast<int>(i) == menu.selected);
@@ -144,15 +135,12 @@ void renderMenu(GfxRenderer& renderer, const Menu& menu,
       renderer.drawRect(30, y - 22, w - 60, 36, true);
       char buf[80];
       std::snprintf(buf, sizeof(buf), "> %s", menu.items[i]);
-      renderer.drawText(FONT_BODY, 50, y, buf, false);  // inverted
+      renderer.drawText(FONT_BODY, 50, y, buf, false);
     } else {
       renderer.drawText(FONT_BODY, 50, y, menu.items[i], true);
     }
     y += 44;
   }
-
-  (void)orientation;
-  (void)frame;
 }
 
 }  // namespace
@@ -169,6 +157,9 @@ int main(int argc, char** argv) {
   }
 
   display.begin();
+  gpio.begin();
+  Storage.begin();
+
   GfxRenderer renderer(display);
   renderer.begin();
   size_t orientationIdx = 0;
@@ -189,8 +180,8 @@ int main(int argc, char** argv) {
   renderer.setFontCacheManager(&fontCache);
 
   Menu menu;
-  int frame = 0;
-  renderMenu(renderer, menu, kOrientations[orientationIdx], frame++);
+  renderMenu(renderer, menu);
+  display.displayBuffer();  // initial publish
 
   if (headless) {
     const uint8_t* fb = display.getFrameBuffer();
@@ -202,14 +193,16 @@ int main(int argc, char** argv) {
     savePgmScreenshot(fb, HalDisplay::DISPLAY_WIDTH, HalDisplay::DISPLAY_HEIGHT,
                       dumpPath);
     SDL_Quit();
-    std::printf("sim: rendered %dx%d (orient=%s); fb_hash=0x%08x; wrote %s\n",
-                HalDisplay::DISPLAY_WIDTH, HalDisplay::DISPLAY_HEIGHT,
-                orientationName(kOrientations[orientationIdx]), hash,
-                dumpPath);
+    std::printf(
+        "sim: rendered %dx%d (orient=%s, refreshTick=%u); fb_hash=0x%08x; "
+        "wrote %s\n",
+        HalDisplay::DISPLAY_WIDTH, HalDisplay::DISPLAY_HEIGHT,
+        orientationName(kOrientations[orientationIdx]),
+        display.getRefreshTick(), hash, dumpPath);
     return 0;
   }
 
-  constexpr int kDiagH = 12;  // Black diagnostic strip at bottom.
+  constexpr int kDiagH = 12;
   const int winW = HalDisplay::DISPLAY_WIDTH;
   const int winH = HalDisplay::DISPLAY_HEIGHT + kDiagH;
 
@@ -221,73 +214,89 @@ int main(int argc, char** argv) {
       sdl, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
       HalDisplay::DISPLAY_WIDTH, HalDisplay::DISPLAY_HEIGHT);
 
+  uint32_t lastBlitTick = 0;
   bool running = true;
-  bool dirty = true;
+  int screenshotIdx = 0;
 
   while (running) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
-      if (e.type == SDL_QUIT) running = false;
-      if (e.type != SDL_KEYDOWN) continue;
-      const auto btn = sim::buttonFromSDL(e.key);
-      switch (btn) {
-        case sim::Button::Quit:
-          running = false;
-          break;
-        case sim::Button::CycleOrientation:
-          orientationIdx = (orientationIdx + 1) %
-                           (sizeof(kOrientations) / sizeof(kOrientations[0]));
-          renderer.setOrientation(kOrientations[orientationIdx]);
-          dirty = true;
-          break;
-        case sim::Button::Screenshot: {
-          char path[64];
-          std::snprintf(path, sizeof(path), "screenshot_%04d.pgm", frame);
-          if (savePgmScreenshot(display.getFrameBuffer(),
-                                HalDisplay::DISPLAY_WIDTH,
-                                HalDisplay::DISPLAY_HEIGHT, path)) {
-            std::printf("sim: wrote %s\n", path);
+      if (e.type == SDL_QUIT) {
+        running = false;
+        continue;
+      }
+      if (e.type != SDL_KEYDOWN && e.type != SDL_KEYUP) continue;
+      const SDL_Keycode k = e.key.keysym.sym;
+
+      // Host-only shortcuts fire on key-down only.
+      if (e.type == SDL_KEYDOWN && !e.key.repeat) {
+        switch (sim::hostActionForKey(k)) {
+          case sim::HostAction::Quit:
+            running = false;
+            continue;
+          case sim::HostAction::CycleOrientation:
+            orientationIdx = (orientationIdx + 1) %
+                             (sizeof(kOrientations) / sizeof(kOrientations[0]));
+            renderer.setOrientation(kOrientations[orientationIdx]);
+            menu.dirty = true;
+            continue;
+          case sim::HostAction::Screenshot: {
+            char path[64];
+            std::snprintf(path, sizeof(path), "screenshot_%04d.pgm",
+                          screenshotIdx++);
+            if (savePgmScreenshot(display.getFrameBuffer(),
+                                  HalDisplay::DISPLAY_WIDTH,
+                                  HalDisplay::DISPLAY_HEIGHT, path)) {
+              std::printf("sim: wrote %s\n", path);
+            }
+            continue;
           }
-          break;
+          case sim::HostAction::None:
+            break;
         }
-        case sim::Button::Confirm:
-          if (menu.selected == static_cast<int>(menu.items.size()) - 1) {
-            running = false;  // Power off sim
-          }
-          break;
-        default:
-          menu.onButton(btn);
-          break;
       }
-      if (menu.dirty) {
-        menu.dirty = false;
-        dirty = true;
-      }
+
+      // Map to a HalGPIO button, ignoring auto-repeat.
+      const int8_t btn = sim::buttonForKey(k);
+      if (btn < 0) continue;
+      if (e.type == SDL_KEYDOWN && e.key.repeat) continue;
+      gpio.simSetButton(static_cast<uint8_t>(btn), e.type == SDL_KEYDOWN);
     }
 
-    if (dirty) {
-      renderMenu(renderer, menu, kOrientations[orientationIdx], frame++);
+    gpio.update();
+
+    // ---- Application "tick" — uses canonical HalGPIO API ----
+    if (gpio.wasPressed(HalGPIO::BTN_UP)) menu.up();
+    if (gpio.wasPressed(HalGPIO::BTN_DOWN)) menu.down();
+    if (gpio.wasPressed(HalGPIO::BTN_CONFIRM) && menu.selectedIsQuit()) {
+      running = false;
+    }
+
+    if (menu.dirty) {
+      renderMenu(renderer, menu);
+      display.displayBuffer();  // bumps refreshTick → host loop will blit
+      menu.dirty = false;
+    }
+
+    if (display.getRefreshTick() != lastBlitTick) {
       blitFramebuffer(tex, display.getFrameBuffer(),
                       HalDisplay::DISPLAY_WIDTH, HalDisplay::DISPLAY_HEIGHT);
-      dirty = false;
+      lastBlitTick = display.getRefreshTick();
     }
 
-    // Panel: top region 800×480.
     SDL_Rect panelDst{0, 0, HalDisplay::DISPLAY_WIDTH,
                       HalDisplay::DISPLAY_HEIGHT};
     SDL_RenderClear(sdl);
     SDL_RenderCopy(sdl, tex, nullptr, &panelDst);
 
-    // Diag strip: 12px black bar at the bottom, white 5x7 ASCII.
     SDL_Rect diagBar{0, HalDisplay::DISPLAY_HEIGHT, winW, kDiagH};
     SDL_SetRenderDrawColor(sdl, 0, 0, 0, 255);
     SDL_RenderFillRect(sdl, &diagBar);
     char diag[96];
-    std::snprintf(diag, sizeof(diag), "%s  FRAME %d  HEAP %uK",
+    std::snprintf(diag, sizeof(diag), "%s  REFRESH %u  HEAP %uK",
                   orientationName(kOrientations[orientationIdx]),
-                  frame,
+                  static_cast<unsigned>(display.getRefreshTick()),
                   static_cast<unsigned>(ESP.getFreeHeap() / 1024));
-    // Center the 7px-tall glyphs vertically in the 12px strip.
     sim::diag::drawText(sdl, 4, HalDisplay::DISPLAY_HEIGHT + 2, diag, 255, 255,
                         255);
 

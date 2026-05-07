@@ -32,7 +32,7 @@ set(REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
 # first on the include path so they shadow the device headers.
 include_directories(BEFORE
   ${CMAKE_CURRENT_SOURCE_DIR}/compat
-  ${CMAKE_CURRENT_SOURCE_DIR}/stub
+  ${REPO_ROOT}/lib/hal_sim
 )
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
@@ -79,6 +79,10 @@ add_library(crosspoint_core STATIC
   ${REPO_ROOT}/lib/Epub/Epub/hyphenation/LiangHyphenation.cpp
   ${REPO_ROOT}/lib/Epub/Epub/hyphenation/LanguageRegistry.cpp
   ${REPO_ROOT}/lib/Epub/Epub/hyphenation/Hyphenator.cpp
+  # Simulator HAL backend (replaces lib/hal/ via include-path priority).
+  ${REPO_ROOT}/lib/hal_sim/HalDisplay.cpp
+  ${REPO_ROOT}/lib/hal_sim/HalGPIO.cpp
+  ${REPO_ROOT}/lib/hal_sim/HalStorage.cpp
 )
 target_link_libraries(crosspoint_core PUBLIC uzlib_sim)
 

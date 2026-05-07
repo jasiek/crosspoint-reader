@@ -1,49 +1,55 @@
 #pragma once
-// SDL keyboard → logical Button mapping for the simulator.
-// Mirrors the Button enum from src/MappedInputManager.h so future activity
-// code can be ported without API changes; we don't reuse MappedInputManager
-// itself yet because it pulls in the full settings/persistence stack.
+// SDL key → simulator input mapping. Two flavours:
+//   - buttonForKey:    keys that emulate physical device buttons. The result
+//                      is a HalGPIO::BTN_* index ready to feed into
+//                      HalGPIO::simSetButton, so the rest of the firmware
+//                      stack (MappedInputManager, activities) can use the
+//                      device-canonical wasPressed/wasReleased API.
+//   - hostActionForKey: keys that are sim-only (orientation cycle, screenshot,
+//                       quit). These bypass HalGPIO entirely.
+//
+// Kept in a single header so the keymap is easy to audit/tweak.
 
 #include <SDL2/SDL.h>
 
 #include <cstdint>
 
+#include "HalGPIO.h"
+
 namespace sim {
 
-enum class Button : uint8_t {
-  None = 0,
-  Up,
-  Down,
-  Left,
-  Right,
-  Back,
-  Confirm,
-  PageBack,
-  PageForward,
-  // Sim-only
+// Default keyboard layout (mirrors the labels we'd print on the front panel
+// for a desk reviewer): arrows = navigation, X/Enter = confirm, Z = back,
+// [/] = page navigation, P = power.
+inline int8_t buttonForKey(SDL_Keycode k) {
+  switch (k) {
+    case SDLK_UP:           return HalGPIO::BTN_UP;
+    case SDLK_DOWN:         return HalGPIO::BTN_DOWN;
+    case SDLK_LEFT:         return HalGPIO::BTN_LEFT;
+    case SDLK_RIGHT:        return HalGPIO::BTN_RIGHT;
+    case SDLK_z:            return HalGPIO::BTN_BACK;
+    case SDLK_x:
+    case SDLK_RETURN:       return HalGPIO::BTN_CONFIRM;
+    case SDLK_LEFTBRACKET:  return HalGPIO::BTN_UP;     // page back  → side
+    case SDLK_RIGHTBRACKET: return HalGPIO::BTN_DOWN;   // page fwd   → side
+    case SDLK_p:            return HalGPIO::BTN_POWER;
+    default:                return -1;
+  }
+}
+
+enum class HostAction : uint8_t {
+  None,
+  Quit,
   CycleOrientation,
   Screenshot,
-  Quit,
 };
 
-// Translate an SDL key event into a logical button. Reflects the device's
-// default keymap (arrow keys = navigation, Z = back, X = confirm, [/] = page
-// turn). Returns Button::None for unrecognised keys.
-inline Button buttonFromSDL(const SDL_KeyboardEvent& e) {
-  switch (e.keysym.sym) {
-    case SDLK_UP:        return Button::Up;
-    case SDLK_DOWN:      return Button::Down;
-    case SDLK_LEFT:      return Button::Left;
-    case SDLK_RIGHT:     return Button::Right;
-    case SDLK_z:         return Button::Back;
-    case SDLK_x:
-    case SDLK_RETURN:    return Button::Confirm;
-    case SDLK_LEFTBRACKET:  return Button::PageBack;
-    case SDLK_RIGHTBRACKET: return Button::PageForward;
-    case SDLK_o:         return Button::CycleOrientation;
-    case SDLK_F12:       return Button::Screenshot;
-    case SDLK_ESCAPE:    return Button::Quit;
-    default:             return Button::None;
+inline HostAction hostActionForKey(SDL_Keycode k) {
+  switch (k) {
+    case SDLK_ESCAPE: return HostAction::Quit;
+    case SDLK_o:      return HostAction::CycleOrientation;
+    case SDLK_F12:    return HostAction::Screenshot;
+    default:          return HostAction::None;
   }
 }
 
