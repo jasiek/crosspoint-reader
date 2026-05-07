@@ -103,14 +103,20 @@ bool savePgmScreenshot(const uint8_t* fb, int wPanel, int hPanel,
   return true;
 }
 
+enum class Screen { Home, Library, Recents, Settings, About };
+
 struct Menu {
-  std::array<const char*, 5> items{
-      "Open library",
-      "Recently read",
-      "Settings",
-      "About",
-      "Power off (sim quit)",
+  struct Item {
+    const char* label;
+    Screen target;  // Screen::Home means quit
   };
+  std::array<Item, 5> items{{
+      {"Open library", Screen::Library},
+      {"Recently read", Screen::Recents},
+      {"Settings", Screen::Settings},
+      {"About", Screen::About},
+      {"Power off (sim quit)", Screen::Home},  // sentinel: quit
+  }};
   int selected = 0;
   bool dirty = true;
 
@@ -125,35 +131,78 @@ struct Menu {
   bool selectedIsQuit() const {
     return selected == static_cast<int>(items.size()) - 1;
   }
+  Screen selectedTarget() const { return items[selected].target; }
 };
 
-void renderMenu(GfxRenderer& renderer, const BaseTheme& theme,
+const char* screenTitle(Screen s) {
+  switch (s) {
+    case Screen::Home:     return "CrossPoint Reader (sim)";
+    case Screen::Library:  return "Library";
+    case Screen::Recents:  return "Recently read";
+    case Screen::Settings: return "Settings";
+    case Screen::About:    return "About";
+  }
+  return "";
+}
+
+const char* screenPlaceholder(Screen s) {
+  switch (s) {
+    case Screen::Library:
+      return "Library browser not yet ported.";
+    case Screen::Recents:
+      return "No recent books.";
+    case Screen::Settings:
+      return "Settings activity not yet ported.";
+    case Screen::About:
+      return "CrossPoint Reader simulator build.";
+    default: return "";
+  }
+}
+
+void drawHeaderBatteryHints(GfxRenderer& renderer, const BaseTheme& theme,
+                            const char* title) {
+  const int w = renderer.getScreenWidth();
+  const auto& m = LyraMetrics::values;
+  Rect headerRect{0, 0, w, m.headerHeight};
+  theme.drawHeader(renderer, headerRect, title);
+  Rect batteryRect{w - m.batteryWidth - 20, m.topPadding, m.batteryWidth,
+                   m.batteryHeight};
+  theme.drawBatteryRight(renderer, batteryRect, /*showPercentage=*/true);
+}
+
+void renderHome(GfxRenderer& renderer, const BaseTheme& theme,
                 const Menu& menu) {
   renderer.clearScreen();
   const int w = renderer.getScreenWidth();
   const int h = renderer.getScreenHeight();
   const auto& m = LyraMetrics::values;
 
-  // Header rendered through the device theme.
-  Rect headerRect{0, 0, w, m.headerHeight};
-  theme.drawHeader(renderer, headerRect, "CrossPoint Reader (sim)");
+  drawHeaderBatteryHints(renderer, theme, screenTitle(Screen::Home));
 
-  // Battery indicator on the right of the header.
-  Rect batteryRect{w - m.batteryWidth - 20, m.topPadding,
-                   m.batteryWidth, m.batteryHeight};
-  theme.drawBatteryRight(renderer, batteryRect, /*showPercentage=*/true);
-
-  // List of menu items.
   Rect listRect{0, m.headerHeight, w, h - m.headerHeight - m.buttonHintsHeight};
   theme.drawList(
       renderer, listRect, static_cast<int>(menu.items.size()), menu.selected,
-      [&](int i) { return std::string(menu.items[i]); });
+      [&](int i) { return std::string(menu.items[i].label); });
 
-  // Button hints at the bottom — Lyra positions itself based on metrics.
-  // drawButtonHints isn't const on the device API; cast away.
   const_cast<BaseTheme&>(theme).drawButtonHints(
       const_cast<GfxRenderer&>(renderer), "Back", "Select", "Up", "Down");
-  (void)h;
+}
+
+void renderPlaceholder(GfxRenderer& renderer, const BaseTheme& theme,
+                       Screen screen) {
+  renderer.clearScreen();
+  const int w = renderer.getScreenWidth();
+  const int h = renderer.getScreenHeight();
+
+  drawHeaderBatteryHints(renderer, theme, screenTitle(screen));
+
+  // Centered placeholder text.
+  const char* msg = screenPlaceholder(screen);
+  const int textW = renderer.getTextWidth(UI_12_FONT_ID, msg);
+  renderer.drawText(UI_12_FONT_ID, (w - textW) / 2, h / 2, msg, true);
+
+  const_cast<BaseTheme&>(theme).drawButtonHints(
+      const_cast<GfxRenderer&>(renderer), "Back", "", "", "");
 }
 
 }  // namespace
@@ -203,7 +252,8 @@ int main(int argc, char** argv) {
   static LyraTheme theme;
 
   Menu menu;
-  renderMenu(renderer, theme, menu);
+  Screen screen = Screen::Home;
+  renderHome(renderer, theme, menu);
   display.displayBuffer();  // initial publish
 
   if (headless) {
@@ -292,15 +342,29 @@ int main(int argc, char** argv) {
     }
 
     // ---- Application "tick" — uses canonical HalGPIO API ----
-    if (gpio.wasPressed(HalGPIO::BTN_UP)) menu.up();
-    if (gpio.wasPressed(HalGPIO::BTN_DOWN)) menu.down();
-    if (gpio.wasPressed(HalGPIO::BTN_CONFIRM) && menu.selectedIsQuit()) {
-      running = false;
+    if (screen == Screen::Home) {
+      if (gpio.wasPressed(HalGPIO::BTN_UP)) menu.up();
+      if (gpio.wasPressed(HalGPIO::BTN_DOWN)) menu.down();
+      if (gpio.wasPressed(HalGPIO::BTN_CONFIRM)) {
+        if (menu.selectedIsQuit()) {
+          running = false;
+        } else {
+          screen = menu.selectedTarget();
+          menu.dirty = true;
+        }
+      }
+    } else if (gpio.wasPressed(HalGPIO::BTN_BACK)) {
+      screen = Screen::Home;
+      menu.dirty = true;
     }
 
     if (menu.dirty) {
-      renderMenu(renderer, theme, menu);
-      display.displayBuffer();  // bumps refreshTick → host loop will blit
+      if (screen == Screen::Home) {
+        renderHome(renderer, theme, menu);
+      } else {
+        renderPlaceholder(renderer, theme, screen);
+      }
+      display.displayBuffer();
       menu.dirty = false;
     }
 
