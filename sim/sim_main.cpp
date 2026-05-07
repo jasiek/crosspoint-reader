@@ -242,6 +242,11 @@ int main(int argc, char** argv) {
   int screenshotIdx = 0;
 
   while (running) {
+    // Snapshot button state at the start of the frame so the SDL events
+    // arriving below produce real rising/falling edges that wasPressed/
+    // wasReleased can detect this frame.
+    gpio.update();
+
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_QUIT) {
@@ -285,8 +290,6 @@ int main(int argc, char** argv) {
       if (e.type == SDL_KEYDOWN && e.key.repeat) continue;
       gpio.simSetButton(static_cast<uint8_t>(btn), e.type == SDL_KEYDOWN);
     }
-
-    gpio.update();
 
     // ---- Application "tick" — uses canonical HalGPIO API ----
     if (gpio.wasPressed(HalGPIO::BTN_UP)) menu.up();
