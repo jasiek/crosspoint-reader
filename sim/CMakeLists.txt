@@ -43,6 +43,12 @@ include_directories(
   ${REPO_ROOT}/lib/EpdFont
   ${REPO_ROOT}/lib/EpdFont/builtinFonts
   ${REPO_ROOT}/lib/GfxRenderer
+  ${REPO_ROOT}/lib/FsHelpers
+  ${REPO_ROOT}/lib/ZipFile
+  ${REPO_ROOT}/lib/Epub
+  ${REPO_ROOT}/lib/Epub/Epub
+  ${REPO_ROOT}/lib/Epub/Epub/css
+  ${REPO_ROOT}/lib/Epub/Epub/hyphenation
 )
 
 # uzlib (C)
@@ -63,6 +69,14 @@ add_library(crosspoint_core STATIC
   ${REPO_ROOT}/lib/GfxRenderer/Bitmap.cpp
   ${REPO_ROOT}/lib/GfxRenderer/BitmapHelpers.cpp
   ${REPO_ROOT}/lib/GfxRenderer/FontCacheManager.cpp
+  ${REPO_ROOT}/lib/FsHelpers/FsHelpers.cpp
+  ${REPO_ROOT}/lib/ZipFile/ZipFile.cpp
+  ${REPO_ROOT}/lib/Epub/Epub/htmlEntities.cpp
+  ${REPO_ROOT}/lib/Epub/Epub/css/CssParser.cpp
+  ${REPO_ROOT}/lib/Epub/Epub/hyphenation/HyphenationCommon.cpp
+  ${REPO_ROOT}/lib/Epub/Epub/hyphenation/LiangHyphenation.cpp
+  ${REPO_ROOT}/lib/Epub/Epub/hyphenation/LanguageRegistry.cpp
+  ${REPO_ROOT}/lib/Epub/Epub/hyphenation/Hyphenator.cpp
 )
 target_link_libraries(crosspoint_core PUBLIC uzlib_sim)
 

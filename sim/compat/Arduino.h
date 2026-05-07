@@ -43,3 +43,13 @@ inline void delay(unsigned long ms) {
 using String = std::string;
 
 // Arduino exposes min/max as macros, but we don't want that on host.
+
+// ESP-IDF helper exposed via Arduino.h on device. Stub a generous fixed value
+// so heap-pressure guards don't fire in the simulator.
+struct EspClass {
+  uint32_t getFreeHeap() const { return 200 * 1024; }
+  uint32_t getMinFreeHeap() const { return 150 * 1024; }
+  uint32_t getMaxAllocHeap() const { return 100 * 1024; }
+  void restart() { std::exit(0); }
+};
+inline EspClass ESP;
