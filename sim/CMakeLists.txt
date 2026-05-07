@@ -35,6 +35,8 @@ include_directories(BEFORE
   ${CMAKE_CURRENT_SOURCE_DIR}/stub
 )
 
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+
 include_directories(
   ${REPO_ROOT}/lib/Logging
   ${REPO_ROOT}/lib/Utf8
